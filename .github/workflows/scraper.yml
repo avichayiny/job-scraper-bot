@@ -30,12 +30,21 @@ jobs:
         run: python main.py
 
       - name: Commit and push changes
-        - name: Save memory (seen jobs)
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          touch seen_jobs.txt
-          git add seen_jobs.txt
-          git diff --quiet && git diff --staged --quiet || git commit -m "Update memory"
-          git pull --rebase origin main
-          git push
+          
+          # מוודא שהקובץ קיים לפני שמוסיפים אותו
+          touch seen_jobs.txt subscribers.txt
+          
+          git add seen_jobs.txt subscribers.txt
+          
+          # בודק אם בכלל יש שינויים לשמור
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Auto-update memory [skip ci]"
+            # משיכת שינויים מהשרת לפני הדחיפה כדי למנוע התנגשות
+            git pull --rebase origin main
+            git push origin main
+          fi
