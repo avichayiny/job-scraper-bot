@@ -1,6 +1,6 @@
 import os
 import requests
-import google.generativeai as genai
+from google import genai
 import html
 import json
 
@@ -11,8 +11,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 SEEN_JOBS_FILE = "seen_jobs.txt"
 
 if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-3.1-flash-lite')
+    client = genai.Client(api_key=GEMINI_API_KEY)
 
 def get_seen_jobs():
     if not os.path.exists(SEEN_JOBS_FILE): return set()
@@ -62,8 +61,12 @@ def check_jobs_batch(jobs_to_check):
     Response format: ["id1", "id2"]
     """
     try:
-        response = model.generate_content(prompt)
-        # ניקוי הטקסט למקרה שהמודל הוסיף סימני Markdown
+        # קריאה מודרנית לספרייה החדשה
+        response = client.models.generate_content(
+            model='gemini-3.1-flash-lite', # המודל המנצח שלנו!
+            contents=prompt,
+        )
+        
         clean_res = response.text.replace('```json', '').replace('```', '').strip()
         return json.loads(clean_res)
     except Exception as e:
