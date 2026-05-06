@@ -12,7 +12,7 @@ SEEN_JOBS_FILE = "seen_jobs.txt"
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-2.0-flash')
+    model = genai.GenerativeModel('gemini-3.1-flash-lite')
 
 def get_seen_jobs():
     if not os.path.exists(SEEN_JOBS_FILE): return set()
