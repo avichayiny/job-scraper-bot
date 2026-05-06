@@ -56,7 +56,7 @@ def check_with_llm(job_title, job_description):
         print(f"LLM Error: {e}")
         return False
 
-def main():
+def main1():
     print("🚀 מתחיל סריקה...")
     # הודעת פינג לוודא שהטלגרם מחובר ועובד
     send_telegram_message("בדיקת מערכת: הסורק התחיל לרוץ! 🤖")
@@ -111,6 +111,26 @@ def main():
             time.sleep(5)
             
     print("✅ סריקה הסתיימה בהצלחה.")
+    
+def main():
+    print("🚀 מריץ בדיקת תקינות לטלגרם...")
+    
+    # שליחת הודעת בדיקה מיידית
+    send_telegram_message("🤖 הבדיקה התחילה! אם אתה רואה את זה, החיבור לטלגרם תקין.")
+    
+    # סורק רק משרה אחת ושולח אותה ישר בלי לשאול את ג'מיני
+    company = 'appsflyer'
+    response = requests.get(f"https://boards-api.greenhouse.io/v1/boards/{company}/jobs?content=true")
+    if response.status_code == 200:
+        jobs = response.json().get('jobs', [])
+        if jobs:
+            job = jobs[0]
+            title = job.get('title')
+            link = job.get('absolute_url')
+            print(f"נסיוני: שולח משרה - {title}")
+            send_telegram_message(f"✅ בדיקת משרה:\nחברה: {company}\nתפקיד: {title}\nלינק: {link}")
+    
+    print("✅ סיימנו בדיקת טלגרם.")
 
 if __name__ == "__main__":
     main()
