@@ -10,6 +10,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 SEEN_JOBS_FILE = "seen_jobs.txt"
 
+
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel('gemini-2.5-flash')
@@ -27,7 +28,15 @@ def save_seen_job(job_id):
 def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
-    requests.post(url, json=payload)
+    try:
+        response = requests.post(url, json=payload)
+        # השורה הזו קריטית - היא תדפיס לנו אם טלגרם החזיר שגיאה
+        if response.status_code != 200:
+            print(f"❌ שגיאת טלגרם: {response.status_code} - {response.text}")
+        else:
+            print("✅ ההודעה נשלחה בהצלחה לטלגרם!")
+    except Exception as e:
+        print(f"❌ כשל בחיבור לטלגרם: {e}")
 
 def is_title_relevant(title):
     title_lower = title.lower()
