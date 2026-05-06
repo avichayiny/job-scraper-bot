@@ -12,7 +12,7 @@ SEEN_JOBS_FILE = "seen_jobs.txt"
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-pro')
+    model = genai.GenerativeModel('gemini-2.5-flash')
 
 def get_seen_jobs():
     if not os.path.exists(SEEN_JOBS_FILE):
@@ -89,16 +89,22 @@ def main():
             
             print(f"🤖 שולח לג'מיני לבדיקה: {title}")
             
-            is_match = check_with_llm(title, description)
-            
-            if is_match:
-                print(f"✅ משרה מתאימה: {title}")
-                msg = f"🔥 <b>משרה חדשה!</b>\n\nחברה: {company}\nתפקיד: {title}\n<a href='{job.get('absolute_url')}'>לחץ להגשה</a>"
-                send_telegram_message(msg)
-            else:
-                print(f"❌ נפסל על ידי ג'מיני: {title}")
+            try:
+                is_match = check_with_llm(title, description)
                 
-            save_seen_job(job_id)
+                if is_match:
+                    print(f"✅ משרה מתאימה: {title}")
+                    msg = f"🔥 <b>משרה חדשה!</b>\n\nחברה: {company}\nתפקיד: {title}\n<a href='{job.get('absolute_url')}'>לחץ להגשה</a>"
+                    send_telegram_message(msg)
+                else:
+                    print(f"❌ נפסל על ידי ג'מיני: {title}")
+                
+                # שומרים בזיכרון רק אם לא הייתה שגיאת API
+                save_seen_job(job_id)
+                
+            except Exception as e:
+                print(f"⚠️ שגיאה בעיבוד המשרה {title}: {e}")
+                # לא שומרים בזיכרון, כדי שננסה שוב בהרצה הבאה
             
             # ההשהיה הקריטית! מחכים 5 שניות כדי לא לעצבן את ג'מיני
             print("ממתין 5 שניות לפני המשרה הבאה...")
