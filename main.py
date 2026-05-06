@@ -10,6 +10,8 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 SEEN_JOBS_FILE = "seen_jobs.txt"
 
+# זמני לבדיקה - במקום למשוך מה-Secrets
+CHAT_ID = "1106351250"
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
