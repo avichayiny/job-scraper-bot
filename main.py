@@ -11,7 +11,8 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 SEEN_JOBS_FILE = "seen_jobs.txt"
 
 if GEMINI_API_KEY:
-    client = genai.Client(api_key=GEMINI_API_KEY)
+    client = genai.Client(api_key=GEMINI_API_KEY, http_options={'api_version': 'v1alpha'})
+    
 
 def get_seen_jobs():
     if not os.path.exists(SEEN_JOBS_FILE): return set()
