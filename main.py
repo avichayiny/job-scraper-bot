@@ -2,30 +2,25 @@ import os
 import requests
 import google.generativeai as genai
 import html
-import time  # הוספנו את ספריית הזמן
+import json
 
+# הגדרות
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+CHAT_ID = "1106351250" # השארנו את ה-ID שעובד
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-
 SEEN_JOBS_FILE = "seen_jobs.txt"
-
-# זמני לבדיקה - במקום למשוך מה-Secrets
-CHAT_ID = "1106351250"
 
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    model = genai.GenerativeModel('gemini-2.0-flash')
 
 def get_seen_jobs():
-    if not os.path.exists(SEEN_JOBS_FILE):
-        return set()
-    with open(SEEN_JOBS_FILE, "r") as f:
-        return set(f.read().splitlines())
+    if not os.path.exists(SEEN_JOBS_FILE): return set()
+    with open(SEEN_JOBS_FILE, "r") as f: return set(f.read().splitlines())
 
-def save_seen_job(job_id):
+def save_seen_jobs(job_ids):
     with open(SEEN_JOBS_FILE, "a") as f:
-        f.write(str(job_id) + "\n")
+        for jid in job_ids: f.write(str(jid) + "\n")
 
 def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -43,105 +38,74 @@ def send_telegram_message(text):
 def is_title_relevant(title):
     title_lower = title.lower()
     blacklist = ['senior', 'lead', 'manager', 'director', 'vp', 'marketing', 'sales', 'finance', 'hr', 'legal']
-    if any(word in title_lower for word in blacklist):
-        return False
+    if any(word in title_lower for word in blacklist): return False
     whitelist = ['student', 'intern', 'junior', 'software', 'developer', 'backend', 'full stack', 'engineer']
     return any(word in title_lower for word in whitelist)
 
-def check_with_llm(job_title, job_description):
-    if not GEMINI_API_KEY:
-        return True 
-        
+def check_jobs_batch(jobs_to_check):
+    """שולח קבוצת משרות לבדיקה אחת ב-LLM"""
+    if not GEMINI_API_KEY or not jobs_to_check: return []
+    
+    # בניית רשימת טקסט למודל
+    jobs_text = ""
+    for j in jobs_to_check:
+        jobs_text += f"ID: {j['id']}\nTitle: {j['title']}\nDescription: {j['content'][:1500]}\n---\n"
+
     prompt = f"""
-    You are an expert technical recruiter. I am a Computer Science student.
-    Does this job match a student/junior level in software engineering?
-    Ensure it DOES NOT require years of full-time experience.
-    Title: {job_title}
-    Description: {job_description}
-    Respond with ONLY one word: "YES" or "NO".
+    You are a technical recruiter. Analyze these job postings for a Computer Science student.
+    Return ONLY a JSON list of IDs that are entry-level, junior, or student positions.
+    Exclude roles requiring 2+ years of experience.
+    
+    Jobs:
+    {jobs_text}
+    
+    Response format: ["id1", "id2"]
     """
     try:
         response = model.generate_content(prompt)
-        return "YES" in response.text.upper()
+        # ניקוי הטקסט למקרה שהמודל הוסיף סימני Markdown
+        clean_res = response.text.replace('```json', '').replace('```', '').strip()
+        return json.loads(clean_res)
     except Exception as e:
         print(f"LLM Error: {e}")
-        return False
+        return []
 
-def main1():
-    print("🚀 מתחיל סריקה...")
-    # הודעת פינג לוודא שהטלגרם מחובר ועובד
-    send_telegram_message("בדיקת מערכת: הסורק התחיל לרוץ! 🤖")
-    
-    seen_jobs = get_seen_jobs()
-    
-    # השארנו כרגע רק את החברה שעבדה לנו
-    companies = ['appsflyer']
-    
-    for company in companies:
-        print(f"🔎 סורק את {company}...")
-        response = requests.get(f"https://boards-api.greenhouse.io/v1/boards/{company}/jobs?content=true")
-        if response.status_code != 200:
-            print(f"Failed to fetch {company}")
-            continue
-            
-        jobs = response.json().get('jobs', [])
-        
-        for job in jobs:
-            job_id = str(job.get('id'))
-            if job_id in seen_jobs:
-                continue
-                
-            title = job.get('title', '')
-            if not is_title_relevant(title):
-                save_seen_job(job_id)
-                continue
-                
-            description = html.unescape(job.get('content', ''))
-            
-            print(f"🤖 שולח לג'מיני לבדיקה: {title}")
-            
-            try:
-                is_match = check_with_llm(title, description)
-                
-                if is_match:
-                    print(f"✅ משרה מתאימה: {title}")
-                    msg = f"🔥 <b>משרה חדשה!</b>\n\nחברה: {company}\nתפקיד: {title}\n<a href='{job.get('absolute_url')}'>לחץ להגשה</a>"
-                    send_telegram_message(msg)
-                else:
-                    print(f"❌ נפסל על ידי ג'מיני: {title}")
-                
-                # שומרים בזיכרון רק אם לא הייתה שגיאת API
-                save_seen_job(job_id)
-                
-            except Exception as e:
-                print(f"⚠️ שגיאה בעיבוד המשרה {title}: {e}")
-                # לא שומרים בזיכרון, כדי שננסה שוב בהרצה הבאה
-            
-            # ההשהיה הקריטית! מחכים 5 שניות כדי לא לעצבן את ג'מיני
-            print("ממתין 5 שניות לפני המשרה הבאה...")
-            time.sleep(5)
-            
-    print("✅ סריקה הסתיימה בהצלחה.")
-    
 def main():
-    print("🚀 מריץ בדיקת תקינות לטלגרם...")
+    print("🚀 מתחיל סריקה חכמה...")
+    seen_jobs = get_seen_jobs()
+    relevant_candidates = []
     
-    # שליחת הודעת בדיקה מיידית
-    send_telegram_message("🤖 הבדיקה התחילה! אם אתה רואה את זה, החיבור לטלגרם תקין.")
-    
-    # סורק רק משרה אחת ושולח אותה ישר בלי לשאול את ג'מיני
-    company = 'appsflyer'
-    response = requests.get(f"https://boards-api.greenhouse.io/v1/boards/{company}/jobs?content=true")
+    # סריקת AppsFlyer
+    response = requests.get("https://boards-api.greenhouse.io/v1/boards/appsflyer/jobs?content=true")
     if response.status_code == 200:
-        jobs = response.json().get('jobs', [])
-        if jobs:
-            job = jobs[0]
-            title = job.get('title')
-            link = job.get('absolute_url')
-            print(f"נסיוני: שולח משרה - {title}")
-            send_telegram_message(f"✅ בדיקת משרה:\nחברה: {company}\nתפקיד: {title}\nלינק: {link}")
+        all_jobs = response.json().get('jobs', [])
+        for job in all_jobs:
+            jid = str(job['id'])
+            if jid not in seen_jobs and is_title_relevant(job['title']):
+                relevant_candidates.append({
+                    'id': jid,
+                    'title': job['title'],
+                    'content': html.unescape(job.get('content', '')),
+                    'url': job.get('absolute_url')
+                })
+
+    if not relevant_candidates:
+        print("לא נמצאו משרות חדשות פוטנציאליות.")
+        return
+
+    # שליחה לג'מיני בבת אחת (Batch)
+    print(f"בודק {len(relevant_candidates)} משרות מול ג'מיני...")
+    matched_ids = check_jobs_batch(relevant_candidates)
     
-    print("✅ סיימנו בדיקת טלגרם.")
+    for job in relevant_candidates:
+        if job['id'] in matched_ids:
+            print(f"✅ נמצאה התאמה: {job['title']}")
+            msg = f"🔥 <b>משרה חדשה נמצאה!</b>\n\nחברה: AppsFlyer\nתפקיד: {job['title']}\n<a href='{job['url']}'>הגש מועמדות כאן</a>"
+            send_telegram_message(msg)
+    
+    # שמירת כל המשרות שבדקנו כדי לא לחזור עליהן
+    save_seen_jobs([j['id'] for j in relevant_candidates])
+    print("✅ סריקה הסתיימה.")
 
 if __name__ == "__main__":
     main()
