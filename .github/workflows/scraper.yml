@@ -1,0 +1,38 @@
+name: Job Scraper Bot
+
+on:
+  schedule:
+    - cron: '0 * * * *' # יריץ את הסקריפט כל שעה עגולה
+  workflow_dispatch: # כפתור שמאפשר לך להריץ ידנית מתי שבא לך לצורך בדיקות
+
+jobs:
+  run-scraper:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # חובה כדי שהסקריפט יוכל לעדכן את קבצי הטקסט ולשמור אותם
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Scraper Script
+        env: # כאן אנחנו מזריקים את המפתחות הסודיים לתוך הסקריפט
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python main.py
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add seen_jobs.txt subscribers.txt
+          # עושה קומיט רק אם היו שינויים בקבצים
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update seen jobs and users" && git push)
