@@ -13,10 +13,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
@@ -30,9 +30,12 @@ jobs:
         run: python main.py
 
       - name: Commit and push changes
+        - name: Save memory (seen jobs)
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add seen_jobs.txt subscribers.txt
-          # עושה קומיט רק אם היו שינויים בקבצים
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update seen jobs and users" && git push)
+          touch seen_jobs.txt
+          git add seen_jobs.txt
+          git diff --quiet && git diff --staged --quiet || git commit -m "Update memory"
+          git pull --rebase origin main
+          git push
