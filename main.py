@@ -7,11 +7,8 @@ import json
 # הגדרות
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = "1106351250" # השארנו את ה-ID שעובד
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 SEEN_JOBS_FILE = "seen_jobs.txt"
-
-if GEMINI_API_KEY:
-    client = genai.Client(api_key=GEMINI_API_KEY, http_options={'api_version': 'v1alpha'})
     
 
 def get_seen_jobs():
@@ -43,17 +40,16 @@ def is_title_relevant(title):
     return any(word in title_lower for word in whitelist)
 
 def check_jobs_batch(jobs_to_check):
-    """שולח קבוצת משרות לבדיקה אחת ב-LLM"""
-    if not GEMINI_API_KEY or not jobs_to_check: return []
+    """שולח קבוצת משרות לניתוח ב-Groq API (Llama 3)"""
+    if not GROQ_API_KEY or not jobs_to_check: return []
     
-    # בניית רשימת טקסט למודל
     jobs_text = ""
     for j in jobs_to_check:
         jobs_text += f"ID: {j['id']}\nTitle: {j['title']}\nDescription: {j['content'][:1500]}\n---\n"
 
     prompt = f"""
-    You are a technical recruiter. Analyze these job postings for a Computer Science student.
-    Return ONLY a JSON list of IDs that are entry-level, junior, or student positions.
+    You are a technical recruiter. Analyze these job postings for a Computer Science student in their final stages of study.
+    Return ONLY a JSON list of IDs that are entry-level, junior, or student positions suitable for a fresh graduate.
     Exclude roles requiring 2+ years of experience.
     
     Jobs:
@@ -61,19 +57,31 @@ def check_jobs_batch(jobs_to_check):
     
     Response format: ["id1", "id2"]
     """
+    
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": "llama3-8b-8192",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.1 # טמפרטורה נמוכה לתשובות מדויקות ויציבות
+    }
+    
     try:
-        # קריאה מודרנית לספרייה החדשה
-        response = client.models.generate_content(
-            model='gemini-3.1-flash-lite', # המודל המנצח שלנו!
-            contents=prompt,
-        )
-        
-        clean_res = response.text.replace('```json', '').replace('```', '').strip()
-        return json.loads(clean_res)
+        response = requests.post(url, headers=headers, json=payload)
+        if response.status_code == 200:
+            content = response.json()['choices'][0]['message']['content']
+            clean_res = content.replace('```json', '').replace('```', '').strip()
+            return json.loads(clean_res)
+        else:
+            print(f"❌ שגיאת Groq: {response.status_code} - {response.text}")
+            return []
     except Exception as e:
         print(f"LLM Error: {e}")
         return []
-
+    
 def main():
     print("🚀 מתחיל סריקה חכמה...")
     seen_jobs = get_seen_jobs()
