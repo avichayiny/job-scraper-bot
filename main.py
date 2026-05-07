@@ -63,7 +63,7 @@ def check_jobs_batch(jobs_to_check):
         "Content-Type": "application/json"
     }
     payload = {
-        "model": "llama3-8b-8192",
+        "model": "llama-3.3-70b-versatile",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.1 # טמפרטורה נמוכה לתשובות מדויקות ויציבות
     }
