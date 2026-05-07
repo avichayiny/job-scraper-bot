@@ -5,16 +5,16 @@ import json
 
 # הגדרות
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
-CHAT_ID = "1106351250" # השארנו את ה-ID שעובד
+CHAT_ID = "1106351250"
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 SEEN_JOBS_FILE = "seen_jobs.txt"
-    
 
 def get_seen_jobs():
     if not os.path.exists(SEEN_JOBS_FILE): return set()
     with open(SEEN_JOBS_FILE, "r") as f: return set(f.read().splitlines())
 
 def save_seen_jobs(job_ids):
+    if not job_ids: return
     with open(SEEN_JOBS_FILE, "a") as f:
         for jid in job_ids: f.write(str(jid) + "\n")
 
@@ -23,7 +23,6 @@ def send_telegram_message(text):
     payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
     try:
         response = requests.post(url, json=payload)
-        # השורה הזו קריטית - היא תדפיס לנו אם טלגרם החזיר שגיאה
         if response.status_code != 200:
             print(f"❌ שגיאת טלגרם: {response.status_code} - {response.text}")
         else:
@@ -38,23 +37,37 @@ def is_title_relevant(title):
     whitelist = ['student', 'intern', 'junior', 'software', 'developer', 'backend', 'full stack', 'engineer']
     return any(word in title_lower for word in whitelist)
 
+def is_location_israel(location_obj):
+    """מסנן משרות שאינן בישראל (או Remote) כדי לחסוך טוקנים מול ה-LLM"""
+    if not location_obj: return False
+    loc_str = location_obj.get('name', '').lower()
+    israel_keywords = ['israel', 'tel aviv', 'herzliya', 'haifa', 'jerusalem', 'remote']
+    return any(keyword in loc_str for keyword in israel_keywords)
+
 def check_jobs_batch(jobs_to_check):
-    """שולח קבוצת משרות לניתוח ב-Groq API (Llama 3)"""
+    """שולח קבוצת משרות לניתוח נוקשה ב-Groq API"""
     if not GROQ_API_KEY or not jobs_to_check: return []
     
     jobs_text = ""
     for j in jobs_to_check:
-        jobs_text += f"ID: {j['id']}\nTitle: {j['title']}\nDescription: {j['content'][:1500]}\n---\n"
+        # הגדלנו טיפה ל-2000 תווים כדי לוודא שדרישות הניסיון לא נחתכות
+        jobs_text += f"ID: {j['id']}\nTitle: {j['title']}\nDescription: {j['content'][:2000]}\n---\n"
 
+    # Prompt מהונדס מחדש: פקודות שליליות ברורות ודרישה לדיוק
     prompt = f"""
-    You are a technical recruiter. Analyze these job postings for a Computer Science student in their final stages of study.
-    Return ONLY a JSON list of IDs that are entry-level, junior, or student positions suitable for a fresh graduate.
-    Exclude roles requiring 2+ years of experience.
+    You are a strict technical recruiter in Israel filtering jobs for a Computer Science student in their final stages of study.
+    Review the following jobs and extract the IDs of the jobs that are suitable.
+
+    STRICT RULES FOR APPROVAL:
+    1. The job MUST be an entry-level, junior, or student position.
+    2. If the job description requires 2 or more years of experience, you MUST REJECT IT. (0 to 1 year of experience is acceptable).
+    3. The role must be relevant to software engineering or computer science.
+
+    Return ONLY a valid JSON list of strings representing the IDs of the approved jobs. Do not return any other text.
+    Example: ["123", "456"]
     
     Jobs:
     {jobs_text}
-    
-    Response format: ["id1", "id2"]
     """
     
     url = "https://api.groq.com/openai/v1/chat/completions"
@@ -65,7 +78,7 @@ def check_jobs_batch(jobs_to_check):
     payload = {
         "model": "llama-3.3-70b-versatile",
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.1 # טמפרטורה נמוכה לתשובות מדויקות ויציבות
+        "temperature": 0.0 # הורדנו לאפס כדי למנוע יצירתיות ואשליות בניתוח הטקסט
     }
     
     try:
@@ -80,9 +93,9 @@ def check_jobs_batch(jobs_to_check):
     except Exception as e:
         print(f"LLM Error: {e}")
         return []
-    
+
 def main():
-    print("🚀 מתחיל סריקה חכמה...")
+    print("🚀 מתחיל סריקה חכמה (עם סינון מיקום מוקדם)...")
     seen_jobs = get_seen_jobs()
     relevant_candidates = []
     
@@ -92,7 +105,8 @@ def main():
         all_jobs = response.json().get('jobs', [])
         for job in all_jobs:
             jid = str(job['id'])
-            if jid not in seen_jobs and is_title_relevant(job['title']):
+            # פה הוספנו את החומה: רק משרות בישראל ועם טייטל רלוונטי עוברות הלאה
+            if jid not in seen_jobs and is_title_relevant(job['title']) and is_location_israel(job.get('location')):
                 relevant_candidates.append({
                     'id': jid,
                     'title': job['title'],
@@ -104,8 +118,8 @@ def main():
         print("לא נמצאו משרות חדשות פוטנציאליות.")
         return
 
-    # שליחה לג'מיני בבת אחת (Batch)
-    print(f"בודק {len(relevant_candidates)} משרות מול ג'מיני...")
+    # שליחה ל-Groq
+    print(f"בודק {len(relevant_candidates)} משרות מול Groq...")
     matched_ids = check_jobs_batch(relevant_candidates)
     
     for job in relevant_candidates:
