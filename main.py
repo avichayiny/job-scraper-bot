@@ -1,6 +1,5 @@
 import os
 import requests
-from google import genai
 import html
 import json
 
