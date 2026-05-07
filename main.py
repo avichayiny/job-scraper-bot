@@ -45,25 +45,25 @@ def is_location_israel(location_obj):
     return any(keyword in loc_str for keyword in israel_keywords)
 
 def check_jobs_batch(jobs_to_check):
-    """שולח קבוצת משרות לניתוח נוקשה ב-Groq API"""
+    """שולח קבוצת משרות לניתוח נוקשה ב-Groq API עם טקסט ארוך יותר"""
     if not GROQ_API_KEY or not jobs_to_check: return []
     
     jobs_text = ""
     for j in jobs_to_check:
-        # הגדלנו טיפה ל-2000 תווים כדי לוודא שדרישות הניסיון לא נחתכות
-        jobs_text += f"ID: {j['id']}\nTitle: {j['title']}\nDescription: {j['content'][:2000]}\n---\n"
+        # הגדלנו משמעותית ל-4000 תווים כדי שדרישות הניסיון ("What you have") ייכנסו בוודאות
+        jobs_text += f"ID: {j['id']}\nTitle: {j['title']}\nDescription: {j['content'][:4000]}\n---\n"
 
-    # Prompt מהונדס מחדש: פקודות שליליות ברורות ודרישה לדיוק
+    # Prompt שמכריח את המודל להיות "צייד" של שנות ניסיון
     prompt = f"""
-    You are a strict technical recruiter in Israel filtering jobs for a Computer Science student in their final stages of study.
-    Review the following jobs and extract the IDs of the jobs that are suitable.
+    You are a strict technical recruiter. Analyze these job postings for a fresh Computer Science graduate or student.
 
-    STRICT RULES FOR APPROVAL:
-    1. The job MUST be an entry-level, junior, or student position.
-    2. If the job description requires 2 or more years of experience, you MUST REJECT IT. (0 to 1 year of experience is acceptable).
-    3. The role must be relevant to software engineering or computer science.
+    CRITICAL RULES:
+    1. Scan the text specifically for sections like "Requirements", "What you have", or "Experience".
+    2. Look for the word "years". If the job requires 2 or more years of experience (e.g., "3+ years", "3-5 years"), you MUST REJECT IT immediately.
+    3. Only approve jobs that are clearly entry-level, junior, student positions, or require 0-1 years of experience.
 
-    Return ONLY a valid JSON list of strings representing the IDs of the approved jobs. Do not return any other text.
+    Return ONLY a JSON list of IDs for the APPROVED jobs. If none are approved, return [].
+    Do not return any conversational text.
     Example: ["123", "456"]
     
     Jobs:
@@ -78,7 +78,7 @@ def check_jobs_batch(jobs_to_check):
     payload = {
         "model": "llama-3.3-70b-versatile",
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.0 # הורדנו לאפס כדי למנוע יצירתיות ואשליות בניתוח הטקסט
+        "temperature": 0.0 
     }
     
     try:
