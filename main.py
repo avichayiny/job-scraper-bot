@@ -3,13 +3,14 @@ import requests
 import html
 import json
 import time
+import re # הוספנו את ספריית הביטויים הרגולריים
 
 # הגדרות
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = "1106351250"
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 SEEN_JOBS_FILE = "seen_jobs.txt"
-COMPANIES_FILE = "companies.json" # שינינו ל-JSON
+COMPANIES_FILE = "companies.json"
 
 def get_seen_jobs():
     if not os.path.exists(SEEN_JOBS_FILE): return set()
@@ -21,9 +22,7 @@ def save_seen_jobs(job_ids):
         for jid in job_ids: f.write(str(jid) + "\n")
 
 def get_companies():
-    """קורא את רשימת החברות והמזהים שלהן מקובץ ה-JSON"""
     if not os.path.exists(COMPANIES_FILE):
-        print(f"⚠️ קובץ {COMPANIES_FILE} לא נמצא. סורק רק את appsflyer כברירת מחדל.")
         return {"AppsFlyer": "appsflyer"}
     with open(COMPANIES_FILE, "r") as f:
         return json.load(f)
@@ -40,7 +39,7 @@ def is_title_relevant(title):
     title_lower = title.lower()
     blacklist = ['senior', 'lead', 'manager', 'director', 'vp', 'marketing', 'sales', 'finance', 'hr', 'legal']
     if any(word in title_lower for word in blacklist): return False
-    whitelist = ['student', 'intern', 'junior', 'software', 'developer', 'backend', 'full stack', 'engineer', 'automation']
+    whitelist = ['student', 'intern', 'junior', 'software', 'developer', 'backend', 'full stack', 'engineer', 'automation', 'test automation', 'cyber']
     return any(word in title_lower for word in whitelist)
 
 def is_location_israel(location_obj):
@@ -49,61 +48,77 @@ def is_location_israel(location_obj):
     israel_keywords = ['israel', 'tel aviv', 'herzliya', 'haifa', 'jerusalem', 'remote', 'petah tikva', 'ramat gan']
     return any(keyword in loc_str for keyword in israel_keywords)
 
+def is_experience_too_high(description):
+    """סינון חומרה מבוסס פייתון: מעיף משרות עם דרישות ניסיון לפני ה-AI"""
+    desc_lower = description.lower()
+    # תבניות שמזהות 2 ומעלה שנות ניסיון (למשל "3+ years", "2-4 years", "minimum 3 years")
+    patterns = [
+        r'[2-9]\+?\s*years', 
+        r'[2-9]\s*-\s*[0-9]+\s*years',
+        r'(at least|minimum)\s+[2-9]\s*years'
+    ]
+    for p in patterns:
+        if re.search(p, desc_lower):
+            return True
+    return False
+
 def check_jobs_batch(jobs_to_check):
     if not GROQ_API_KEY or not jobs_to_check: return []
     
-    jobs_text = ""
-    for j in jobs_to_check:
-        jobs_text += f"ID: {j['id']}\nTitle: {j['title']}\nDescription: {j['content'][:4000]}\n---\n"
-
-    prompt = f"""
-    You are a strict technical recruiter in Israel filtering jobs for a Computer Science student in their final stages of study.
-    Review the following jobs and extract the IDs of the jobs that are suitable.
-
-    CRITICAL RULES FOR APPROVAL:
-    1. Scan the text specifically for sections like "Requirements", "What you have", or "Experience".
-    2. Look for the word "years". If the job requires 2 or more years of experience (e.g., "3+ years", "3-5 years"), you MUST REJECT IT immediately.
-    3. The job MUST be an entry-level, junior, student position, or require 0-1 years of experience.
-
-    Return ONLY a valid JSON list of strings representing the IDs of the approved jobs. Do not return any other text.
-    Example: ["123", "456"]
+    # חילוק לקבוצות של 4 כדי לא להקריס את השרת (Chunking)
+    matched_ids = []
+    chunk_size = 4
     
-    Jobs:
-    {jobs_text}
-    """
-    
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": "llama-3.3-70b-versatile",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.0 
-    }
-    
-    try:
-        response = requests.post(url, headers=headers, json=payload)
-        if response.status_code == 200:
-            content = response.json()['choices'][0]['message']['content']
-            clean_res = content.replace('```json', '').replace('```', '').strip()
-            return json.loads(clean_res)
-        else:
-            print(f"❌ שגיאת Groq: {response.status_code} - {response.text}")
-            return []
-    except Exception as e:
-        print(f"LLM Error: {e}")
-        return []
+    for i in range(0, len(jobs_to_check), chunk_size):
+        chunk = jobs_to_check[i:i + chunk_size]
+        jobs_text = ""
+        for j in chunk:
+            jobs_text += f"ID: {j['id']}\nTitle: {j['title']}\nDescription: {j['content'][:3500]}\n---\n"
+
+        prompt = f"""
+        You are a technical recruiter. The following jobs have already passed basic filters.
+        Analyze them and return ONLY a JSON list of IDs for jobs that are TRULY entry-level, junior, or student positions.
+        If a job secretly implies senior responsibilities or requires more than 1 year of experience, REJECT IT.
+        Return ONLY the JSON list.
+        Example: ["123"]
+        
+        Jobs:
+        {jobs_text}
+        """
+        
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0 
+        }
+        
+        try:
+            response = requests.post(url, headers=headers, json=payload)
+            if response.status_code == 200:
+                content = response.json()['choices'][0]['message']['content']
+                clean_res = content.replace('```json', '').replace('```', '').strip()
+                matched_ids.extend(json.loads(clean_res))
+            else:
+                print(f"❌ שגיאת Groq: {response.status_code}")
+        except Exception as e:
+            print(f"LLM Error: {e}")
+            
+        time.sleep(2) # השהייה קטנה בין Chunks
+        
+    return matched_ids
 
 def main():
-    print("🚀 מתחיל סריקה רוחבית חכמה מבוססת JSON...")
+    print("🚀 מתחיל סריקה רוחבית עם הגנות נגד קריסות (Chunking & Regex)...")
     seen_jobs = get_seen_jobs()
     companies_dict = get_companies()
     
-    # חילצנו את השם לתצוגה ואת ה-ID לטובת ה-API
     for display_name, board_token in companies_dict.items():
-        print(f"\n🔎 סורק את: {display_name} (ID: {board_token})")
+        print(f"\n🔎 סורק את: {display_name}")
         relevant_candidates = []
         
         try:
@@ -112,39 +127,45 @@ def main():
                 all_jobs = response.json().get('jobs', [])
                 for job in all_jobs:
                     jid = str(job['id'])
+                    
+                    # החומה המשולשת: מיקום + כותרת + סינון ניסיון בפייתון!
                     if jid not in seen_jobs and is_title_relevant(job['title']) and is_location_israel(job.get('location')):
-                        relevant_candidates.append({
-                            'id': jid,
-                            'title': job['title'],
-                            'content': html.unescape(job.get('content', '')),
-                            'url': job.get('absolute_url'),
-                            'company_name': display_name # שומרים את השם היפה להודעה בטלגרם
-                        })
+                        content_text = html.unescape(job.get('content', ''))
+                        
+                        if not is_experience_too_high(content_text):
+                            relevant_candidates.append({
+                                'id': jid,
+                                'title': job['title'],
+                                'content': content_text,
+                                'url': job.get('absolute_url'),
+                                'company_name': display_name
+                            })
+                        else:
+                            print(f"   נפסל מראש (דרישת ניסיון גבוהה): {job['title']}")
             else:
-                print(f"⚠️ לא הצלחתי לגשת ללוח המשרות של {display_name} (שגיאה {response.status_code})")
+                print(f"⚠️ לא נמצא לוח. נדלג.")
                 continue
                 
         except Exception as e:
-            print(f"⚠️ שגיאת תקשורת מול {display_name}: {e}")
             continue
 
         if not relevant_candidates:
-            print(f"לא נמצאו משרות רלוונטיות לבדיקה ב-{display_name}.")
+            print(f"לא נשארו משרות לבדיקת AI ב-{display_name}.")
             continue
 
-        print(f"בודק {len(relevant_candidates)} משרות ב-{display_name} מול Groq...")
+        print(f"מעביר {len(relevant_candidates)} משרות לגרוק...")
         matched_ids = check_jobs_batch(relevant_candidates)
         
         for job in relevant_candidates:
             if job['id'] in matched_ids:
-                print(f"✅ נמצאה התאמה: {job['title']} ב-{job['company_name']}")
+                print(f"✅ התאמה סופית: {job['title']}")
                 msg = f"🔥 <b>משרה חדשה נמצאה!</b>\n\nחברה: {job['company_name']}\nתפקיד: {job['title']}\n<a href='{job['url']}'>הגש מועמדות כאן</a>"
                 send_telegram_message(msg)
         
         save_seen_jobs([j['id'] for j in relevant_candidates])
-        time.sleep(15)
+        time.sleep(5)
 
-    print("\n✅ סריקה רוחבית הסתיימה בהצלחה.")
+    print("\n✅ סריקה הסתיימה.")
 
 if __name__ == "__main__":
     main()
