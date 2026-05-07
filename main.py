@@ -126,6 +126,10 @@ def main():
         elif info['platform'] == 'comeet':
             raw_jobs = scrape_comeet(info['id'])
             
+        # --- השורה שנוסיף כדי לראות את הנתונים זורמים: ---
+        print(f"   נמשכו {len(raw_jobs)} משרות גלובליות מהלוח.")
+        # ------------------------------------------------
+            
         relevant_for_ai = []
         for job in raw_jobs:
             if job['id'] not in seen_jobs and is_title_relevant(job['title']):
