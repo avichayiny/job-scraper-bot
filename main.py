@@ -9,7 +9,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = "1106351250"
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 SEEN_JOBS_FILE = "seen_jobs.txt"
-COMPANIES_FILE = "companies.txt"
+COMPANIES_FILE = "companies.json" # שינינו ל-JSON
 
 def get_seen_jobs():
     if not os.path.exists(SEEN_JOBS_FILE): return set()
@@ -21,12 +21,12 @@ def save_seen_jobs(job_ids):
         for jid in job_ids: f.write(str(jid) + "\n")
 
 def get_companies():
-    """קורא את רשימת החברות מקובץ הטקסט"""
+    """קורא את רשימת החברות והמזהים שלהן מקובץ ה-JSON"""
     if not os.path.exists(COMPANIES_FILE):
         print(f"⚠️ קובץ {COMPANIES_FILE} לא נמצא. סורק רק את appsflyer כברירת מחדל.")
-        return ['appsflyer']
+        return {"AppsFlyer": "appsflyer"}
     with open(COMPANIES_FILE, "r") as f:
-        return [line.strip() for line in f if line.strip()]
+        return json.load(f)
 
 def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -40,13 +40,13 @@ def is_title_relevant(title):
     title_lower = title.lower()
     blacklist = ['senior', 'lead', 'manager', 'director', 'vp', 'marketing', 'sales', 'finance', 'hr', 'legal']
     if any(word in title_lower for word in blacklist): return False
-    whitelist = ['student', 'intern', 'junior', 'software', 'developer', 'backend', 'full stack', 'engineer']
+    whitelist = ['student', 'intern', 'junior', 'software', 'developer', 'backend', 'full stack', 'engineer', 'automation']
     return any(word in title_lower for word in whitelist)
 
 def is_location_israel(location_obj):
     if not location_obj: return False
     loc_str = location_obj.get('name', '').lower()
-    israel_keywords = ['israel', 'tel aviv', 'herzliya', 'haifa', 'jerusalem', 'remote']
+    israel_keywords = ['israel', 'tel aviv', 'herzliya', 'haifa', 'jerusalem', 'remote', 'petah tikva', 'ramat gan']
     return any(keyword in loc_str for keyword in israel_keywords)
 
 def check_jobs_batch(jobs_to_check):
@@ -97,17 +97,17 @@ def check_jobs_batch(jobs_to_check):
         return []
 
 def main():
-    print("🚀 מתחיל סריקה רוחבית...")
+    print("🚀 מתחיל סריקה רוחבית חכמה מבוססת JSON...")
     seen_jobs = get_seen_jobs()
-    companies = get_companies()
+    companies_dict = get_companies()
     
-    for company in companies:
-        print(f"\n🔎 סורק את: {company}")
+    # חילצנו את השם לתצוגה ואת ה-ID לטובת ה-API
+    for display_name, board_token in companies_dict.items():
+        print(f"\n🔎 סורק את: {display_name} (ID: {board_token})")
         relevant_candidates = []
         
-        # סריקת חברה ספציפית
         try:
-            response = requests.get(f"https://boards-api.greenhouse.io/v1/boards/{company}/jobs?content=true")
+            response = requests.get(f"https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs?content=true")
             if response.status_code == 200:
                 all_jobs = response.json().get('jobs', [])
                 for job in all_jobs:
@@ -118,21 +118,21 @@ def main():
                             'title': job['title'],
                             'content': html.unescape(job.get('content', '')),
                             'url': job.get('absolute_url'),
-                            'company_name': company.capitalize()
+                            'company_name': display_name # שומרים את השם היפה להודעה בטלגרם
                         })
             else:
-                print(f"⚠️ לא הצלחתי לגשת ללוח המשרות של {company} (שגיאה {response.status_code})")
+                print(f"⚠️ לא הצלחתי לגשת ללוח המשרות של {display_name} (שגיאה {response.status_code})")
                 continue
                 
         except Exception as e:
-            print(f"⚠️ שגיאת תקשורת מול {company}: {e}")
+            print(f"⚠️ שגיאת תקשורת מול {display_name}: {e}")
             continue
 
         if not relevant_candidates:
-            print(f"לא נמצאו משרות רלוונטיות לבדיקה ב-{company}.")
+            print(f"לא נמצאו משרות רלוונטיות לבדיקה ב-{display_name}.")
             continue
 
-        print(f"בודק {len(relevant_candidates)} משרות ב-{company} מול Groq...")
+        print(f"בודק {len(relevant_candidates)} משרות ב-{display_name} מול Groq...")
         matched_ids = check_jobs_batch(relevant_candidates)
         
         for job in relevant_candidates:
@@ -141,10 +141,7 @@ def main():
                 msg = f"🔥 <b>משרה חדשה נמצאה!</b>\n\nחברה: {job['company_name']}\nתפקיד: {job['title']}\n<a href='{job['url']}'>הגש מועמדות כאן</a>"
                 send_telegram_message(msg)
         
-        # שומרים את המשרות של החברה הנוכחית
         save_seen_jobs([j['id'] for j in relevant_candidates])
-        
-        # השהייה של 15 שניות כדי לא לחרוג ממגבלת הטוקנים של Groq
         time.sleep(15)
 
     print("\n✅ סריקה רוחבית הסתיימה בהצלחה.")
