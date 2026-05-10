@@ -5,7 +5,6 @@ import json
 import time
 import re
 
-# הגדרות
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = "1106351250"
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
@@ -28,10 +27,8 @@ def get_companies():
 def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "parse_mode": "HTML"}
-    try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print(f"❌ כשל בטלגרם: {e}")
+    try: requests.post(url, json=payload)
+    except: pass
 
 def is_title_relevant(title):
     title_lower = title.lower()
@@ -57,16 +54,28 @@ def scrape_greenhouse(board_token):
                 loc = j.get('location', {}).get('name', '').lower()
                 if any(k in loc for k in ['israel', 'tel aviv', 'remote', 'herzliya', 'haifa']):
                     jobs.append({
-                        'id': str(j['id']),
-                        'title': j['title'],
-                        'content': html.unescape(j.get('content', '')),
-                        'url': j.get('absolute_url')
+                        'id': str(j['id']), 'title': j['title'],
+                        'content': html.unescape(j.get('content', '')), 'url': j.get('absolute_url')
                     })
-        else:
-            # הוספנו הדפסת שגיאה אם הלוח לא קיים
-            print(f"      ⚠️ שגיאה {res.status_code}: ה-ID '{board_token}' כנראה שגוי או שהחברה עזבה את גרינהאוס.")
-    except Exception as e:
-        print(f"      ⚠️ שגיאת תקשורת: {e}")
+        else: print(f"      ⚠️ שגיאה {res.status_code}: ה-ID כנראה שגוי.")
+    except Exception as e: print(f"      ⚠️ שגיאה: {e}")
+    return jobs
+
+def scrape_lever(company_id):
+    jobs = []
+    url = f"https://api.lever.co/v0/postings/{company_id}"
+    try:
+        res = requests.get(url, timeout=10)
+        if res.status_code == 200:
+            for j in res.json():
+                loc = j.get('categories', {}).get('location', '').lower()
+                if any(k in loc for k in ['israel', 'tel aviv', 'remote', 'herzliya', 'haifa']):
+                    jobs.append({
+                        'id': str(j['id']), 'title': j['text'],
+                        'content': html.unescape(j.get('descriptionPlain', '')), 'url': j.get('hostedUrl')
+                    })
+        else: print(f"      ⚠️ שגיאה {res.status_code}: ה-ID כנראה שגוי.")
+    except Exception as e: print(f"      ⚠️ שגיאה: {e}")
     return jobs
 
 def scrape_comeet(company_id):
@@ -79,16 +88,12 @@ def scrape_comeet(company_id):
                 loc = j.get('location', {}).get('name', '').lower()
                 if any(k in loc for k in ['israel', 'tel aviv', 'remote', 'herzliya', 'haifa']):
                     jobs.append({
-                        'id': str(j['uid']),
-                        'title': j['name'],
+                        'id': str(j['uid']), 'title': j['name'],
                         'content': html.unescape(j.get('description', '') + j.get('requirements', '')),
                         'url': j.get('url_active_page')
                     })
-        else:
-            # הוספנו הדפסת שגיאה כדי שלא נחשוב סתם שיש 0 משרות
-            print(f"      ⚠️ שגיאה {res.status_code}: ה-UID '{company_id}' שגוי. קומיט דורש קוד אלפאנומרי, לא שם.")
-    except Exception as e:
-        print(f"      ⚠️ שגיאת תקשורת: {e}")
+        else: print(f"      ⚠️ שגיאה {res.status_code}: ה-UID שגוי.")
+    except Exception as e: print(f"      ⚠️ שגיאה: {e}")
     return jobs
 
 def check_jobs_batch(jobs_to_check):
@@ -105,12 +110,10 @@ def check_jobs_batch(jobs_to_check):
         
         payload = {
             "model": "llama-3.3-70b-versatile",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.0 
+            "messages": [{"role": "user", "content": prompt}], "temperature": 0.0 
         }
         try:
-            res = requests.post("https://api.groq.com/openai/v1/chat/completions", 
-                                headers={"Authorization": f"Bearer {GROQ_API_KEY}"}, json=payload)
+            res = requests.post("https://api.groq.com/openai/v1/chat/completions", headers={"Authorization": f"Bearer {GROQ_API_KEY}"}, json=payload)
             if res.status_code == 200:
                 content = res.json()['choices'][0]['message']['content']
                 clean_res = content.replace('```json', '').replace('```', '').strip()
@@ -120,22 +123,19 @@ def check_jobs_batch(jobs_to_check):
     return matched_ids
 
 def main():
-    print("🚀 מתחיל סריקה רב-פלטפורמית (Greenhouse + Comeet)...")
+    print("🚀 מתחיל סריקה תלת-מנועית (Greenhouse + Lever + Comeet)...")
     seen_jobs = get_seen_jobs()
     companies = get_companies()
     
     for name, info in companies.items():
         print(f"🔎 סורק את {name} ({info['platform']})...")
         raw_jobs = []
-        if info['platform'] == 'greenhouse':
-            raw_jobs = scrape_greenhouse(info['id'])
-        elif info['platform'] == 'comeet':
-            raw_jobs = scrape_comeet(info['id'])
+        if info['platform'] == 'greenhouse': raw_jobs = scrape_greenhouse(info['id'])
+        elif info['platform'] == 'lever': raw_jobs = scrape_lever(info['id'])
+        elif info['platform'] == 'comeet': raw_jobs = scrape_comeet(info['id'])
             
-        # --- השורה שנוסיף כדי לראות את הנתונים זורמים: ---
-        print(f"   נמשכו {len(raw_jobs)} משרות גלובליות מהלוח.")
-        # ------------------------------------------------
-            
+        print(f"   נמשכו {len(raw_jobs)} משרות מהלוח.")
+        
         relevant_for_ai = []
         for job in raw_jobs:
             if job['id'] not in seen_jobs and is_title_relevant(job['title']):
@@ -144,7 +144,7 @@ def main():
         
         if relevant_for_ai:
             print(f"  מעביר {len(relevant_for_ai)} משרות לניתוח AI...")
-            matched_ids = check_jobs_batch(relevant_candidates := relevant_for_ai)
+            matched_ids = check_jobs_batch(relevant_for_ai)
             for job in relevant_for_ai:
                 if job['id'] in matched_ids:
                     print(f"  ✅ התאמה! {job['title']}")
@@ -152,8 +152,7 @@ def main():
                     send_telegram_message(msg)
             save_seen_jobs([j['id'] for j in relevant_for_ai])
         
-        time.sleep(5) # הפסקה בין חברות
-
+        time.sleep(5)
     print("\n✅ סריקה הסתיימה בהצלחה.")
 
 if __name__ == "__main__":
