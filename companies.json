@@ -8,9 +8,8 @@
     "Orca Security": { "platform": "greenhouse", "id": "orcasecurity" },
     "Cato Networks": { "platform": "greenhouse", "id": "catonetworks" },
     "Taboola": { "platform": "greenhouse", "id": "taboola" },
-    "Wiz": { "platform": "lever", "id": "wiz" },
-    "SentinelOne": { "platform": "lever", "id": "sentinelone" },
-    "Armis": { "platform": "lever", "id": "armis" },
-    "Papaya Global": { "platform": "lever", "id": "papayaglobal" },
-    "Grip Security": { "platform": "lever", "id": "gripsecurity" }
+    "Wiz": { "platform": "greenhouse", "id": "wizinc" },
+    "SentinelOne": { "platform": "greenhouse", "id": "sentinellabs" },
+    "Papaya Global": { "platform": "comeet", "id": "16.005" },
+    "Grip Security": { "platform": "comeet", "id": "A8.001" }
 }
