@@ -62,18 +62,20 @@ def scrape_greenhouse(board_token):
                         'content': html.unescape(j.get('content', '')),
                         'url': j.get('absolute_url')
                     })
-    except: pass
+        else:
+            # הוספנו הדפסת שגיאה אם הלוח לא קיים
+            print(f"      ⚠️ שגיאה {res.status_code}: ה-ID '{board_token}' כנראה שגוי או שהחברה עזבה את גרינהאוס.")
+    except Exception as e:
+        print(f"      ⚠️ שגיאת תקשורת: {e}")
     return jobs
 
 def scrape_comeet(company_id):
     jobs = []
-    # ה-API הציבורי של Comeet
     url = f"https://www.comeet.co/careers-api/v1/company/{company_id}/positions?details=true"
     try:
         res = requests.get(url, timeout=10)
         if res.status_code == 200:
             for j in res.json():
-                # סינון לוקיישן בקומיט
                 loc = j.get('location', {}).get('name', '').lower()
                 if any(k in loc for k in ['israel', 'tel aviv', 'remote', 'herzliya', 'haifa']):
                     jobs.append({
@@ -82,7 +84,11 @@ def scrape_comeet(company_id):
                         'content': html.unescape(j.get('description', '') + j.get('requirements', '')),
                         'url': j.get('url_active_page')
                     })
-    except: pass
+        else:
+            # הוספנו הדפסת שגיאה כדי שלא נחשוב סתם שיש 0 משרות
+            print(f"      ⚠️ שגיאה {res.status_code}: ה-UID '{company_id}' שגוי. קומיט דורש קוד אלפאנומרי, לא שם.")
+    except Exception as e:
+        print(f"      ⚠️ שגיאת תקשורת: {e}")
     return jobs
 
 def check_jobs_batch(jobs_to_check):
